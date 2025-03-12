@@ -8,16 +8,18 @@ import java.util.*;
 import java.util.regex.*;
 
 public class App {
-    // Set to track visited URLs to prevent redirect loops
+
     private static Set<String> visitedUrls = new HashSet<>();
-    // Maximum number of redirects to follow
     private static final int MAX_REDIRECTS = 5;
-    // Redirect counter
     private static int redirectCount = 0;
-    // Store search results
     private static Map<Integer, String> searchResults = new HashMap<>();
+    private static Map<String, String> cache = new HashMap<>();
+    private static final String CACHE_FILE = "cache.txt";
 
     public static void main(String[] args) {
+
+        loadCache();
+
         if (args.length < 1) {
             showHelp();
             return;
@@ -31,6 +33,13 @@ public class App {
                     return;
                 }
                 String url = args[1];
+
+                if (cache.containsKey(url)) {
+                    System.out.println("Cached response:");
+                    System.out.println(cache.get(url));
+                    return;
+                }
+
                 try {
                     // Reset tracking for each new request
                     visitedUrls.clear();
@@ -38,6 +47,9 @@ public class App {
 
                     String response = makeHttpRequest(url);
                     String cleanText = parseResponse(response);
+
+                    cache.put(url, cleanText);
+                    saveCache();
 
                     // Print meaningful content only
                     System.out.println(cleanText);
@@ -81,10 +93,65 @@ public class App {
         System.out.println("  go2web -h               # show this help");
     }
 
+    private static void saveCache() {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(CACHE_FILE))) {
+            for (Map.Entry<String, String> entry : cache.entrySet()) {
+                writer.write(entry.getKey() + "::" + entry.getValue());
+                writer.newLine();
+            }
+            System.out.println("Cache saved successfully.");
+        } catch (IOException e) {
+            System.out.println("Failed to save cache: " + e.getMessage());
+        }
+    }
+
+    private static String getCachedResponse(String url) throws Exception {
+        if (cache.containsKey(url)) {
+            System.out.println("Returning cached response for: " + url);
+            return cache.get(url);
+        }
+        System.out.println("Fetching from server: " + url);
+        String response = makeHttpRequest(url);
+        cache.put(url, response);
+        saveCache(); // Save cache after successful request
+        return response;
+    }
+
+    private static void loadCache() {
+        try (BufferedReader reader = new BufferedReader(new FileReader(CACHE_FILE))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] parts = line.split("::", 2);
+                if (parts.length == 2) {
+                    cache.put(parts[0], parts[1]);
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("No existing cache found.");
+            // create cache file
+            try {
+                File file = new File(CACHE_FILE);
+                if (file.createNewFile()) {
+                    System.out.println("Cache file created: " + file.getName());
+                } else {
+                    System.out.println("Cache file already exists.");
+                }
+            } catch (IOException ex) {
+                System.out.println("An error occurred while creating cache file.");
+                ex.printStackTrace();
+            }
+        }
+    }
+
     private static String makeHttpRequest(String urlString) throws Exception {
         // Check if we've already visited this URL to prevent loops
         if (visitedUrls.contains(urlString)) {
             throw new Exception("Redirect loop detected");
+        }
+
+        if (cache.containsKey(urlString)) {
+            System.out.println("Returning cached response for: " + urlString);
+            return cache.get(urlString);
         }
 
         // Add URL to visited set
@@ -182,6 +249,7 @@ public class App {
                 }
             }
         }
+
 
         return responseStr;
     }
@@ -353,18 +421,24 @@ public class App {
             int choice = scanner.nextInt();
             String resultUrl = searchResults.get(choice);
             if (resultUrl != null) {
-                // Reset tracking for each new request
                 visitedUrls.clear();
                 redirectCount = 0;
 
                 String response1;
+
                 try {
+                    System.out.println("Fetching from server: " + resultUrl);
                     response1 = makeHttpRequest(resultUrl);
+                    System.out.println("Response: " + response1);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
                 String cleanText = parseResponse(response1);
-                System.out.println(cleanText);
+                System.out.println("Clean text: " + cleanText);
+
+                cache.put(resultUrl, cleanText);
+                saveCache();
+
             } else {
                 System.out.println("Error: No search result found with number " + choice);
             }
