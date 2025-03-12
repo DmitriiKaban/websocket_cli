@@ -14,6 +14,8 @@ public class App {
     private static final int MAX_REDIRECTS = 5;
     // Redirect counter
     private static int redirectCount = 0;
+    // Store search results
+    private static Map<Integer, String> searchResults = new HashMap<>();
 
     public static void main(String[] args) {
         if (args.length < 1) {
@@ -43,6 +45,52 @@ public class App {
                     System.out.println("Error making request: " + e.getMessage());
                 }
                 break;
+            case "-s":
+                if (args.length < 2) {
+                    System.out.println("Error: Search term required");
+                    showHelp();
+                    return;
+                }
+                String searchTerm = new ArrayList<>(List.of(args)).subList(1, args.length).stream().reduce((a, b) -> a + " " + b).get();
+
+                try {
+                    // Reset tracking for each new request
+                    visitedUrls.clear();
+                    redirectCount = 0;
+
+                    // Use DuckDuckGo for search (more privacy-friendly)
+                    String searchUrl = "https://duckduckgo.com/html/?q=" + URLEncoder.encode(searchTerm, StandardCharsets.UTF_8.toString());
+                    String response = makeHttpRequest(searchUrl);
+                    displaySearchResults(response);
+                } catch (Exception e) {
+                    System.out.println("Error performing search: " + e.getMessage());
+                }
+                break;
+            case "-g":
+                if (args.length < 2) {
+                    System.out.println("Error: Result number required");
+                    return;
+                }
+                try {
+                    int resultNum = Integer.parseInt(args[1]);
+                    String resultUrl = searchResults.get(resultNum);
+                    if (resultUrl != null) {
+                        // Reset tracking for each new request
+                        visitedUrls.clear();
+                        redirectCount = 0;
+
+                        String response = makeHttpRequest(resultUrl);
+                        String cleanText = parseResponse(response);
+                        System.out.println(cleanText);
+                    } else {
+                        System.out.println("Error: No search result found with number " + resultNum);
+                    }
+                } catch (NumberFormatException e) {
+                    System.out.println("Error: Invalid result number");
+                } catch (Exception e) {
+                    System.out.println("Error accessing search result: " + e.getMessage());
+                }
+                break;
             case "-h":
             default:
                 showHelp();
@@ -53,6 +101,8 @@ public class App {
     private static void showHelp() {
         System.out.println("Usage:");
         System.out.println("  go2web -u <URL>         # make an HTTP request to the specified URL and print the response");
+        System.out.println("  go2web -s <search-term> # make an HTTP request to search the term and print top 10 results");
+        System.out.println("  go2web -g <number>      # go to the search result with the specified number");
         System.out.println("  go2web -h               # show this help");
     }
 
@@ -227,5 +277,100 @@ public class App {
         }
 
         return meaningfulContent.toString().trim();
+    }
+
+    private static void displaySearchResults(String response) {
+        // Clear previous search results
+        searchResults.clear();
+
+        // Extract the body content
+        int headerEnd = response.indexOf("\r\n\r\n");
+        if (headerEnd == -1) {
+            System.out.println("Invalid response format");
+            return;
+        }
+
+        String body = response.substring(headerEnd + 4);
+
+        // For DuckDuckGo search results
+        Pattern linkPattern = Pattern.compile("<a class=\"result__a\" href=\"([^\"]+)\"[^>]*>([^<]+)</a>");
+        Matcher matcher = linkPattern.matcher(body);
+
+        int count = 0;
+        Set<String> uniqueUrls = new HashSet<>();
+
+        System.out.println("Search Results:");
+        System.out.println("===============");
+
+        while (matcher.find() && count < 10) {
+            String url = matcher.group(1);
+            String title = matcher.group(2).trim();
+
+            // DuckDuckGo sometimes uses redirects, try to extract the real URL
+            if (url.startsWith("/l/?")) {
+                Pattern uddgPattern = Pattern.compile("uddg=([^&]+)");
+                Matcher uddgMatcher = uddgPattern.matcher(url);
+                if (uddgMatcher.find()) {
+                    try {
+                        url = URLDecoder.decode(uddgMatcher.group(1), StandardCharsets.UTF_8.toString());
+                    } catch (UnsupportedEncodingException e) {
+                        // Use the original URL if decoding fails
+                    }
+                }
+            }
+
+            // Make sure URL is absolute
+            if (!url.startsWith("http")) {
+                url = "https://duckduckgo.com" + url;
+            }
+
+            // Add to results if unique
+            if (uniqueUrls.add(url)) {
+                count++;
+                searchResults.put(count, url);
+                System.out.println(count + ". " + title);
+                System.out.println("   " + url);
+                System.out.println();
+            }
+        }
+
+        // If we didn't find any results with the preferred pattern, try a more generic pattern
+        if (count == 0) {
+            // Try a more generic pattern for links
+            Pattern genericPattern = Pattern.compile("<a[^>]*href=\"([^\"]+)\"[^>]*>([^<]+)</a>");
+            Matcher genericMatcher = genericPattern.matcher(body);
+
+            while (genericMatcher.find() && count < 10) {
+                String url = genericMatcher.group(1);
+                String title = genericMatcher.group(2).trim();
+
+                // Skip internal links, images, etc.
+                if (url.startsWith("#") || url.startsWith("javascript:") ||
+                        url.endsWith(".jpg") || url.endsWith(".png") || url.endsWith(".gif") ||
+                        title.isEmpty() || title.length() < 5) {
+                    continue;
+                }
+
+                // Make sure URL is absolute
+                if (!url.startsWith("http")) {
+                    url = "https://duckduckgo.com" + url;
+                }
+
+                // Add to results if unique
+                if (uniqueUrls.add(url)) {
+                    count++;
+                    searchResults.put(count, url);
+                    System.out.println(count + ". " + title);
+                    System.out.println("   " + url);
+                    System.out.println();
+                }
+            }
+        }
+
+        if (count == 0) {
+            System.out.println("No search results found. The search engine page may have changed its structure.");
+        } else {
+            System.out.println("Use 'go2web -g <number>' to access any of the search results.");
+        }
     }
 }
