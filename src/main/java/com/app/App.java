@@ -66,31 +66,6 @@ public class App {
                     System.out.println("Error performing search: " + e.getMessage());
                 }
                 break;
-            case "-g":
-                if (args.length < 2) {
-                    System.out.println("Error: Result number required");
-                    return;
-                }
-                try {
-                    int resultNum = Integer.parseInt(args[1]);
-                    String resultUrl = searchResults.get(resultNum);
-                    if (resultUrl != null) {
-                        // Reset tracking for each new request
-                        visitedUrls.clear();
-                        redirectCount = 0;
-
-                        String response = makeHttpRequest(resultUrl);
-                        String cleanText = parseResponse(response);
-                        System.out.println(cleanText);
-                    } else {
-                        System.out.println("Error: No search result found with number " + resultNum);
-                    }
-                } catch (NumberFormatException e) {
-                    System.out.println("Error: Invalid result number");
-                } catch (Exception e) {
-                    System.out.println("Error accessing search result: " + e.getMessage());
-                }
-                break;
             case "-h":
             default:
                 showHelp();
@@ -369,8 +344,32 @@ public class App {
 
         if (count == 0) {
             System.out.println("No search results found. The search engine page may have changed its structure.");
-        } else {
-            System.out.println("Use 'go2web -g <number>' to access any of the search results.");
         }
+
+
+        if (count == 10) {
+            System.out.print("Choose the URL you want to visit by typing its number: ");
+            Scanner scanner = new Scanner(System.in);
+            int choice = scanner.nextInt();
+            String resultUrl = searchResults.get(choice);
+            if (resultUrl != null) {
+                // Reset tracking for each new request
+                visitedUrls.clear();
+                redirectCount = 0;
+
+                String response1;
+                try {
+                    response1 = makeHttpRequest(resultUrl);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+                String cleanText = parseResponse(response1);
+                System.out.println(cleanText);
+            } else {
+                System.out.println("Error: No search result found with number " + choice);
+            }
+        }
+
+
     }
 }
